@@ -1,0 +1,31 @@
+{
+  "name": "hippocampus",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "dev:client": "vite",
+    "build:client": "vite build",
+    "dev:server": "bun ",
+    "build:server": "bun run server/index.ts"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.1.18",
+    "@types/bun": "latest",
+    "daisyui": "^5.5.16",
+    "tailwindcss": "^4.1.18",
+    "vite": "^7.3.1"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  },
+  "dependencies": {
+    "@elysiajs/eden": "^1.4.6",
+    "@elysiajs/static": "^1.4.7",
+    "elysia": "^1.4.22",
+    "kysely": "^0.28.11",
+    "kysely-bun-sqlite": "^0.4.0",
+    "ts-fsrs": "^5.2.3",
+    "vanjs-core": "^1.6.0",
+    "vanjs-ext": "^0.6.3"
+  }
+}
