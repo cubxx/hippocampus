@@ -5,25 +5,27 @@
   "scripts": {
     "dev:client": "vite",
     "build:client": "vite build",
-    "dev:server": "bun ",
-    "build:server": "bun run server/index.ts"
+    "start:server": "bun run server"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.1.18",
     "@types/bun": "latest",
     "daisyui": "^5.5.16",
     "tailwindcss": "^4.1.18",
+    "temporal-spec": "^0.3.0",
     "vite": "^7.3.1"
   },
   "peerDependencies": {
-    "typescript": "^5"
+    "typescript": "^5.9.3"
   },
   "dependencies": {
     "@elysiajs/eden": "^1.4.6",
     "@elysiajs/static": "^1.4.7",
+    "clsx": "^2.1.1",
     "elysia": "^1.4.22",
     "kysely": "^0.28.11",
     "kysely-bun-sqlite": "^0.4.0",
+    "tailwind-merge": "^3.4.0",
     "ts-fsrs": "^5.2.3",
     "vanjs-core": "^1.6.0",
     "vanjs-ext": "^0.6.3"

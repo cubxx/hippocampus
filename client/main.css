@@ -2,3 +2,31 @@
 @plugin "daisyui" {
   themes: sunset --default;
 }
+
+@layer utilities {
+  .alert-info {
+    @apply alert-info text-info-content;
+  }
+  .alert-error {
+    @apply alert-error text-error-content;
+  }
+  .alert-warning {
+    @apply alert-warning text-warning-content;
+  }
+  .alert-success {
+    @apply alert-success text-success-content;
+  }
+
+  .btn-info {
+    @apply btn-info;
+  }
+  .btn-error {
+    @apply btn-error;
+  }
+  .btn-warning {
+    @apply btn-warning;
+  }
+  .btn-success {
+    @apply btn-success;
+  }
+}
