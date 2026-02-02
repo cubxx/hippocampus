@@ -22,7 +22,7 @@ const table = <T extends { [K: string]: ColumnParams }>(
 const column = {
   id: (c: ColumnDefinitionBuilder) => c.autoIncrement().primaryKey(),
   create_at: (c: ColumnDefinitionBuilder) =>
-    c.defaultTo(sql`strftime('%s','now')`).notNull(),
+    c.defaultTo(sql`(strftime('%s','now'))`).notNull(),
   notNull: (c: ColumnDefinitionBuilder) => c.notNull(),
   foreignKey: (ref: string) => (c: ColumnDefinitionBuilder) =>
     c.references(ref).onDelete('cascade').notNull(),
@@ -111,12 +111,14 @@ export type SchemaType = {
 
 // create table
 for (const [table, columns] of Object.entries(schema)) {
-  const builder = db.schema.createTable(table);
+  let builder = db.schema.createTable(table);
   for (const [column, params] of Object.entries(columns)) {
-    column === BUILD_KEY
-      ? params(builder)
-      : builder.addColumn(column, params[0], params[1]);
+    builder =
+      column === BUILD_KEY
+        ? params(builder)
+        : builder.addColumn(column, params[0], params[1]);
   }
+  // console.log(builder.compile().sql);
   await builder.execute();
 }
 // create row

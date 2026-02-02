@@ -14,8 +14,8 @@ const deck = new Elysia({ prefix: '/deck' })
       db
         .selectFrom('deck')
         .selectAll()
-        .limit(query.qn)
-        .offset((query.qs - 1) * query.qn)
+        .limit(query.qs)
+        .offset((query.qn - 1) * query.qs)
         .execute(),
     {
       query: t.Object({
@@ -122,14 +122,16 @@ const card = new Elysia({ prefix: '/card' })
     ({ query }) =>
       db
         .selectFrom('card')
-        .innerJoin('fsrs', 'card.id', 'card_fsrs.card_id')
+        .innerJoin('fsrs', 'card.id', 'fsrs.card_id')
         .selectAll('card')
-        .select(['fsrs.due', 'card_fsrs.scheduled_days'])
+        .select(['fsrs.due', 'fsrs.scheduled_days'])
+        .where('deck_id', '=', query.deck_id)
         .limit(query.qn)
         .offset((query.qs - 1) * query.qn)
         .execute(),
     {
       query: t.Object({
+        deck_id: t.Integer(),
         qn: t.Integer({ minimum: 1, default: 1 }),
         qs: t.Integer({ minimum: 1, default: 20 }),
       }),
@@ -228,18 +230,61 @@ const card = new Elysia({ prefix: '/card' })
     },
     { params: t.Object({ id: t.Integer() }) },
   );
+const media = new Elysia({ prefix: '/media' })
+  .get(
+    '/',
+    ({ query }) =>
+      db
+        .selectFrom('media')
+        .selectAll()
+        .limit(query.qn)
+        .offset((query.qs - 1) * query.qn)
+        .execute(),
+    {
+      query: t.Object({
+        qn: t.Integer({ minimum: 1, default: 1 }),
+        qs: t.Integer({ minimum: 1, default: 20 }),
+      }),
+    },
+  )
+  .post(
+    '/',
+    async ({ body }) => {
+      const row = await db
+        .insertInto('media')
+        .values(body)
+        .returningAll()
+        .executeTakeFirstOrThrow();
+      return row;
+    },
+    {
+      body: t.Object({ path: t.String(), mime: t.String(), size: t.Integer() }),
+    },
+  )
+  .delete(
+    '/:id',
+    async ({ params }) => {
+      await db.deleteFrom('media').where('id', '=', params.id).execute();
+      return;
+    },
+    { params: t.Object({ id: t.Integer() }) },
+  );
 const app = new Elysia()
-  .use(staticPlugin({ assets: 'dist', prefix: '/' }))
-  .use(deck)
-  .use(template)
-  .use(card)
-  .onError(({ error, set }) => {
-    if (error instanceof ValidationError) {
-      set.status = 418;
-    }
-    set.status = 500;
-    return { error };
+  .use(staticPlugin({ assets: 'client/dist', prefix: '/' }))
+  .group('/api', (grp) => grp.use(deck).use(template).use(card).use(media))
+  .onRequest(async ({ request: req }) => {
+    await new Promise((r) => setTimeout(r, 1e3));
+    console.log(`${new Date().toISOString()} ${req.method} ${req.url}`);
   })
-  .listen(process.env.PORT ?? 3000);
+  .listen(
+    {
+      port: process.env.PORT ?? 3000,
+      hostname: '0.0.0.0',
+    },
+    (e) =>
+      console.info(
+        `Listen${e.development ? ' with dev' : ''}: ${e.protocol}://${e.hostname}:${e.port}`,
+      ),
+  );
 
-export type App = typeof app;
+export type Api = typeof app;
