@@ -1,7 +1,16 @@
 import staticPlugin from '@elysiajs/static';
-import { Elysia, t, ValidationError } from 'elysia';
-import { createEmptyCard, fsrs, generatorParameters, Rating } from 'ts-fsrs';
-import { db } from './db';
+import { Elysia, t } from 'elysia';
+import { randomUUID } from 'node:crypto';
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import {
+  createEmptyCard,
+  fsrs,
+  generatorParameters,
+  Grades,
+  type Grade,
+} from 'ts-fsrs';
+import { db, db_dir } from './db';
 
 const FSRS = fsrs(
   generatorParameters({ enable_short_term: true, enable_fuzz: false }),
@@ -14,8 +23,8 @@ const deck = new Elysia({ prefix: '/deck' })
       db
         .selectFrom('deck')
         .selectAll()
-        .limit(query.qn)
-        .offset((query.qs - 1) * query.qn)
+        .limit(query.qs)
+        .offset((query.qn - 1) * query.qs)
         .execute(),
     {
       query: t.Object({
@@ -60,6 +69,7 @@ const deck = new Elysia({ prefix: '/deck' })
     },
     { params: t.Object({ id: t.Integer() }) },
   );
+
 const template = new Elysia({ prefix: '/template' })
   .get(
     '/',
@@ -67,8 +77,8 @@ const template = new Elysia({ prefix: '/template' })
       db
         .selectFrom('template')
         .selectAll()
-        .limit(query.qn)
-        .offset((query.qs - 1) * query.qn)
+        .limit(query.qs)
+        .offset((query.qn - 1) * query.qs)
         .execute(),
     {
       query: t.Object({
@@ -116,22 +126,29 @@ const template = new Elysia({ prefix: '/template' })
     },
     { params: t.Object({ id: t.Integer() }) },
   );
+
 const card = new Elysia({ prefix: '/card' })
   .get(
     '/',
-    ({ query }) =>
-      db
+    ({ query }) => {
+      let builder = db
         .selectFrom('card')
-        .innerJoin('fsrs', 'card.id', 'card_fsrs.card_id')
-        .selectAll('card')
-        .select(['fsrs.due', 'card_fsrs.scheduled_days'])
-        .limit(query.qn)
-        .offset((query.qs - 1) * query.qn)
-        .execute(),
+        .innerJoin('fsrs', 'card.id', 'fsrs.card_id')
+        .selectAll(['card', 'fsrs'])
+        .where('deck_id', '=', query.deck_id)
+        .limit(query.qs)
+        .offset((query.qn - 1) * query.qs);
+      if (query.learn != null) {
+        builder = builder.where('fsrs.due', '<=', Date.now());
+      }
+      return builder.execute();
+    },
     {
       query: t.Object({
+        deck_id: t.Integer(),
         qn: t.Integer({ minimum: 1, default: 1 }),
         qs: t.Integer({ minimum: 1, default: 20 }),
+        learn: t.Optional(t.Literal('')),
       }),
     },
   )
@@ -140,13 +157,13 @@ const card = new Elysia({ prefix: '/card' })
     async ({ body }) => {
       const card = createEmptyCard();
 
-      await db.transaction().execute(async (trx) => {
+      return await db.transaction().execute(async (trx) => {
         const row = await trx
           .insertInto('card')
           .values(body)
-          .returning('id')
+          .returningAll()
           .executeTakeFirstOrThrow();
-        await trx
+        const fsrs = await trx
           .insertInto('fsrs')
           .values({
             ...card,
@@ -155,7 +172,16 @@ const card = new Elysia({ prefix: '/card' })
             card_id: row.id,
           })
           .returningAll()
-          .execute();
+          .executeTakeFirstOrThrow();
+
+        const values = body.front
+          .matchAll(/\{\{media:(\d+)\}\}/g)
+          .map(([_, id]) => id?.length && { card_id: row.id, media_id: +id })
+          .filter((e) => !!e)
+          .toArray();
+        await trx.insertInto('card_media').values(values).execute();
+
+        return { ...row, ...fsrs };
       });
     },
     {
@@ -201,7 +227,7 @@ const card = new Elysia({ prefix: '/card' })
         .executeTakeFirstOrThrow();
 
       const scheduling_cards = FSRS.repeat(card, body.date);
-      const item = scheduling_cards[Rating.Easy];
+      const item = scheduling_cards[body.grade];
       const new_card = item.card;
       const new_log = item.log;
 
@@ -217,29 +243,98 @@ const card = new Elysia({ prefix: '/card' })
     },
     {
       params: t.Object({ id: t.Integer() }),
-      body: t.Object({ date: t.Integer() }),
+      body: t.Object({
+        date: t.Integer(),
+        grade: t.UnionEnum(Grades as [Grade, ...Grade[]]),
+      }),
     },
   )
   .delete(
     '/:id',
     async ({ params }) => {
       await db.deleteFrom('card').where('id', '=', params.id).execute();
-      return;
     },
     { params: t.Object({ id: t.Integer() }) },
   );
-const app = new Elysia()
-  .use(staticPlugin({ assets: 'dist', prefix: '/' }))
-  .use(deck)
-  .use(template)
-  .use(card)
-  .onError(({ error, set }) => {
-    if (error instanceof ValidationError) {
-      set.status = 418;
-    }
-    set.status = 500;
-    return { error };
-  })
-  .listen(process.env.PORT ?? 3000);
 
-export type App = typeof app;
+const media_types: MediaTypes = ['image', 'audio', 'video'];
+const media = new Elysia({ prefix: '/media' })
+  .get(
+    '/',
+    ({ query }) =>
+      db
+        .selectFrom('media')
+        .select(['id', 'mime', 'size', 'create_at'])
+        .where('mime', 'like', query.type + '/%')
+        .limit(query.qs)
+        .offset((query.qn - 1) * query.qs)
+        .execute(),
+    {
+      query: t.Object({
+        qn: t.Integer({ minimum: 1, default: 1 }),
+        qs: t.Integer({ minimum: 1, default: 20 }),
+        type: t.UnionEnum(media_types),
+      }),
+    },
+  )
+  .get(
+    '/:id',
+    async ({ params, set }) => {
+      const media = await db
+        .selectFrom('media')
+        .select(['path', 'mime'])
+        .where('id', '=', params.id)
+        .executeTakeFirstOrThrow();
+      const file = Bun.file(media.path, { type: media.mime });
+      if (!(await file.exists())) {
+        await db.deleteFrom('media').where('id', '=', params.id).execute();
+        set.status = 404;
+        return `No Found: ${media.path}`;
+      }
+      set.headers['cache-control'] = 'max-age=31536000';
+      return file;
+    },
+    { params: t.Object({ id: t.Integer() }) },
+  )
+  .post(
+    '/',
+    async ({ body }) => {
+      const promises = body.files.map(async (file) => {
+        const filepath = path.join(db_dir, 'medias', randomUUID());
+        await Bun.write(filepath, file);
+        return db
+          .insertInto('media')
+          .values({ path: filepath, mime: file.type, size: file.size })
+          .returningAll()
+          .executeTakeFirstOrThrow();
+      });
+      return await Promise.allSettled(promises);
+    },
+    { body: t.Object({ files: t.Files({ type: media_types }) }) },
+  )
+  .delete(
+    '/:id',
+    async ({ params }) => {
+      await db.transaction().execute(async () => {
+        const media = await db
+          .deleteFrom('media')
+          .where('id', '=', params.id)
+          .returning('path')
+          .executeTakeFirstOrThrow();
+        await fs.rm(media.path);
+      });
+    },
+    { params: t.Object({ id: t.Integer() }) },
+  );
+
+const app = new Elysia()
+  .use(staticPlugin({ assets: 'client/dist', prefix: '/' }))
+  .group('/api', (grp) => grp.use(deck).use(template).use(card).use(media))
+  .onRequest(({ request: req, server }) => {
+    console.log(`${req.method} ${req.url.replace(server!.url.href, '/')}`);
+  })
+  .listen({ port: process.env.PORT ?? 3000, hostname: '127.0.0.1' }, (svr) =>
+    console.info(`Listen: ${svr.url}`),
+  );
+
+export type Api = typeof app;

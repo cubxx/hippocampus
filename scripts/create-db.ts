@@ -1,7 +1,12 @@
-import { sql, type ColumnDataType, type ColumnDefinitionBuilder } from 'kysely';
-import { db } from './db';
+import {
+  sql,
+  type ColumnDataType,
+  type ColumnDefinitionBuilder,
+  type CreateTableBuilder,
+  type Generated,
+} from 'kysely';
 import type { Card } from 'ts-fsrs';
-import type { CreateTableBuilder, Generated } from 'kysely';
+import { db } from '../server/db';
 
 type ColumnParams = [
   type: ColumnDataType,
@@ -22,7 +27,7 @@ const table = <T extends { [K: string]: ColumnParams }>(
 const column = {
   id: (c: ColumnDefinitionBuilder) => c.autoIncrement().primaryKey(),
   create_at: (c: ColumnDefinitionBuilder) =>
-    c.defaultTo(sql`strftime('%s','now')`).notNull(),
+    c.defaultTo(sql`(strftime('%s','now'))`).notNull(),
   notNull: (c: ColumnDefinitionBuilder) => c.notNull(),
   foreignKey: (ref: string) => (c: ColumnDefinitionBuilder) =>
     c.references(ref).onDelete('cascade').notNull(),
@@ -90,12 +95,6 @@ type ColumnType = {
   integer: number;
   real: number;
 };
-const __typecheck__: Record<
-  Schema extends Record<string, Record<string, [infer T, ...any[]]>>
-    ? T
-    : never,
-  unknown
-> = {} as ColumnType;
 export type SchemaType = {
   [Table in keyof Schema]: {
     [Column in keyof Schema[Table]]: Schema[Table][Column] extends [
@@ -111,16 +110,18 @@ export type SchemaType = {
 
 // create table
 for (const [table, columns] of Object.entries(schema)) {
-  const builder = db.schema.createTable(table);
+  let builder = db.schema.createTable(table);
   for (const [column, params] of Object.entries(columns)) {
-    column === BUILD_KEY
-      ? params(builder)
-      : builder.addColumn(column, params[0], params[1]);
+    builder =
+      column === BUILD_KEY
+        ? params(builder)
+        : builder.addColumn(column, params[0], params[1]);
   }
+  // console.log(builder.compile().sql);
   await builder.execute();
 }
 // create row
 await db
   .insertInto('template')
-  .values({ name: 'Basic', content: '{{front}}<hr>{{back}}' })
+  .values({ name: 'Basic', content: '{{front}}<next>{{back}}' })
   .execute();
