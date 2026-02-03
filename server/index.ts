@@ -142,11 +142,11 @@ const card = new Elysia({ prefix: '/card' })
     async ({ body }) => {
       const card = createEmptyCard();
 
-      await db.transaction().execute(async (trx) => {
+      return await db.transaction().execute(async (trx) => {
         const row = await trx
           .insertInto('card')
           .values(body)
-          .returning('id')
+          .returningAll()
           .executeTakeFirstOrThrow();
         await trx
           .insertInto('fsrs')
@@ -158,6 +158,8 @@ const card = new Elysia({ prefix: '/card' })
           })
           .returningAll()
           .execute();
+
+        return row;
       });
     },
     {
