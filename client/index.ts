@@ -1,7 +1,7 @@
 import { edenTreaty } from '@elysiajs/eden';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
-import { Grades, Rating, type Grade } from 'ts-fsrs';
+import { Grades, Rating, State, type Grade } from 'ts-fsrs';
 import van, { type ChildDom, type ValidChildDomValue } from 'vanjs-core';
 import { list, reactive } from 'vanjs-ext';
 import type { Api } from '../server';
@@ -9,11 +9,10 @@ import { useCRUD, useHash, useToast } from './hook';
 
 const {
   div,
-  ul,
-  li,
   button,
   select,
   option,
+  input,
   textarea,
   span,
   dialog,
@@ -28,8 +27,9 @@ const { api } = edenTreaty<Api>('/');
 const safe = <T>(
   res: { data: T; error: null } | { data: null; error: Error },
 ) => {
-  if (res.error != null) throw res.error;
-  return res.data;
+  if (res.error == null) return res.data;
+  toast.show('' + res.error, 'error');
+  throw res.error;
 };
 const cn = (...inputs: ClassValue[]) => twMerge(clsx(inputs));
 const unix_timestamp_to_ymd = (() => {
@@ -52,7 +52,7 @@ const deck_crud = useCRUD({
     return await api.deck.post({ name }).then(safe);
   },
   async U(item) {
-    const name = prompt('new name');
+    const name = prompt('new name', item.name);
     if (!name) throw Error('Empty name');
     return await api.deck[item.id]!.patch({ name }).then(safe);
   },
@@ -70,9 +70,9 @@ const template_crud = useCRUD({
     return await api.template.post({ name, content }).then(safe);
   },
   async U(item) {
-    const name = prompt('new name');
+    const name = prompt('new name', item.name);
     if (!name) throw Error('Empty name');
-    const content = prompt('new content');
+    const content = prompt('new content', item.content);
     if (!content) throw Error('Empty content');
     return await api.template[item.id]!.patch({ name, content }).then(safe);
   },
@@ -121,7 +121,7 @@ const Table = <T extends object, K extends (keyof T & string)[]>(props: {
 }) => {
   props.topbar ??= (btn) => div({ class: 'm-4' }, btn);
   const tbl = table(
-    { class: 'table table-xs' },
+    { class: 'table table-zebra' },
     thead(tr(props.keys.map((k) => th(k)))),
     list(tbody, props.model.items, (item) =>
       tr(
@@ -164,13 +164,46 @@ const Table = <T extends object, K extends (keyof T & string)[]>(props: {
     div({ class: 'overflow-x-auto' }, tbl),
   );
 };
-const Study = (props: {}) => {
+const Study = () => {
+  template_crud.items.length || template_crud.R.fn();
+
   let grade: Grade | null = null;
 
   const deck_id = van.derive(() =>
     hash.val.startsWith('study-') ? +hash.val.slice(6) : NaN,
   );
-  const card = van.state<null | (typeof crud.items)[0]>(null);
+  const crud = useCRUD({
+    R: () =>
+      api.card
+        .get({ $query: { deck_id: deck_id.val, qn: 1, qs: 1e2, learn: '' } })
+        .then(safe),
+    C() {
+      throw Error('Unsupport');
+    },
+    async U(item) {
+      if (grade == null) throw Error('grade is null');
+      await api.card[item.id]!.fsrs.patch({ date: Date.now(), grade }).then(
+        safe,
+      );
+      // goto next card
+      grade = null;
+      if ((card.val = crud.items[crud.items.indexOf(item) + 1]) == null)
+        location.hash = 'deck';
+
+      return item;
+    },
+    D() {
+      throw Error('Unsupport');
+    },
+  });
+
+  van.derive(() => {
+    Number.isNaN(deck_id.val) || crud.R.fn();
+  });
+  const card = van.derive(() => {
+    crud.items.length;
+    return crud.items[0];
+  });
 
   const parse_template = (
     tmpl: string,
@@ -183,41 +216,19 @@ const Study = (props: {}) => {
   const content_idx = van.state<0 | 1>(0);
   const content = van.derive(() => {
     if (card.val == null) return null;
-    const tmpl = template_crud.items.find(
-      (e) => e.id === card.val!.template_id,
-    );
+
+    const tmpl = template_crud.items.length
+      ? template_crud.items.find((e) => e.id === card.val!.template_id)
+      : null;
     if (tmpl == null) return null;
+
     return parse_template(tmpl.content, {
       front: card.val.front,
       back: card.val.back,
     }).split('<next>', 2);
   });
-  const crud = useCRUD({
-    R: () =>
-      api.card
-        .get({ $query: { deck_id: deck_id.val, qn: 1, qs: 1e2, learn: true } })
-        .then(safe),
-    C() {
-      throw Error('Unsupport');
-    },
-    async U(item) {
-      if (grade == null) throw Error('grade is null');
-      await api.card[item.id]!.fsrs.patch({ date: Date.now(), grade }).then(
-        safe,
-      );
-      // goto next card
-      grade = null;
-      if ((card.val = crud.items[crud.items.indexOf(item) + 1] ?? null) == null)
-        location.hash = 'deck';
-
-      return item;
-    },
-    D() {
-      throw Error('Unsupport');
-    },
-  });
   van.derive(() => {
-    Number.isNaN(deck_id.val) || crud.R.fn();
+    console.log(content.val?.[content_idx.val]);
   });
 
   const grade_level_map = {
@@ -227,28 +238,46 @@ const Study = (props: {}) => {
     [Rating.Easy]: 'success',
   } satisfies Record<Grade, LogLevel>;
   return div(
-    div({ hidden: () => !!card.val, class: 'text-error' }, 'Empty deck'),
+    { class: 'text-center' },
     div(
-      { hidden: () => !card.val },
+      { hidden: () => !!card.val, class: 'h-full flex-center text-error' },
+      'No cards to study',
+    ),
+    div(
+      { hidden: () => !card.val, class: 'h-full pb-2' },
       div({ id: 'stat' }),
       div(
-        { id: 'front', hidden: () => content_idx.val },
-        div({ innerHTML: () => content.val?.[content_idx.val] ?? '' }),
+        {
+          id: 'front',
+          hidden: () => content_idx.val,
+          class: 'h-full flex flex-col',
+        },
+        div({
+          class: 'flex-1 flex-center',
+          innerHTML: () => content.val?.[content_idx.val] ?? '',
+        }),
         button(
           {
-            class: 'btn btn-block',
+            class: 'btn btn-soft btn-primary',
             onclick() {
               content_idx.val = 1;
             },
           },
-          'OK',
+          'Flip',
         ),
       ),
       div(
-        { id: 'back', hidden: () => !content_idx.val },
-        div({ innerHTML: () => content.val?.[content_idx.val] ?? '' }),
+        {
+          id: 'back',
+          hidden: () => !content_idx.val,
+          class: 'h-full flex flex-col',
+        },
+        div({
+          class: 'flex-1 flex-center',
+          innerHTML: () => content.val?.[content_idx.val] ?? '',
+        }),
         div(
-          { class: 'flex justify-center-safe gap-2' },
+          { class: 'mx-2 grid grid-cols-4 gap-2' },
           Grades.map((e) =>
             Button({
               class: `btn btn-soft btn-${grade_level_map[e]}`,
@@ -269,6 +298,7 @@ const Study = (props: {}) => {
 
 // init
 const routes: Record<string, MaybeGetter<HTMLElement>> = {
+  study: Study,
   deck() {
     deck_crud.items.length || deck_crud.R.fn();
 
@@ -320,17 +350,13 @@ const routes: Record<string, MaybeGetter<HTMLElement>> = {
           <T extends keyof CardEditable>(k: T) => (editor.data[k] = data[k]),
         );
       },
-      async show() {
+      show() {
         editor.cancel();
         diag.showModal();
-        try {
-          return await new Promise<void>((resolve, reject) => {
-            editor.ok = resolve;
-            editor.cancel = () => reject('Cancel');
-          });
-        } finally {
-          return diag.close();
-        }
+        return new Promise<void>((resolve, reject) => {
+          editor.ok = resolve;
+          editor.cancel = () => reject('Cancel');
+        }).finally(() => diag.close());
       },
       ok() {},
       cancel() {},
@@ -339,7 +365,7 @@ const routes: Record<string, MaybeGetter<HTMLElement>> = {
     const diag = dialog(
       { class: 'modal' },
       div(
-        { class: 'modal-box flex flex-col items-center-safe gap-2' },
+        { class: 'modal-box flex-center gap-2' },
         list(
           () =>
             select({
@@ -364,8 +390,17 @@ const routes: Record<string, MaybeGetter<HTMLElement>> = {
           template_crud.items,
           (item) => option({ value: () => item.val.id }, () => item.val.name),
         ),
+        input({
+          type: 'file',
+          class: 'file-input',
+          multiple: true,
+          onchange(e) {
+            const files: File[] = e.target.files;
+            // TODO: upload files
+            // set {{media:xxx}} to textarea
+          },
+        }),
         textarea({
-          // TODO: save media on paste
           class: 'textarea',
           placeholder: 'front',
           value: () => editor.data.front,
@@ -399,7 +434,10 @@ const routes: Record<string, MaybeGetter<HTMLElement>> = {
 
         editor.set({ deck_id: deck_id.val, template_id, front: '', back: '' });
         await editor.show();
-        return await api.card.post(editor.data).then(safe);
+
+        if (editor.data.front && editor.data.back)
+          return await api.card.post(editor.data).then(safe);
+        throw Error('No content');
       },
       async U(item) {
         editor.set(item);
@@ -413,18 +451,19 @@ const routes: Record<string, MaybeGetter<HTMLElement>> = {
       },
     });
     van.derive(() => {
-      deck_id.val;
-      crud.R.fn();
+      deck_id.val != -1 && crud.R.fn();
     });
 
     return div(
       Table({
         model: crud,
-        keys: ['id', 'front', 'back', 'create_at'],
+        keys: ['id', 'front', 'back', 'state', 'due', 'create_at'],
         rows: {
           id: (v) => v,
           front: (v) => v,
           back: (v) => v,
+          state: (v) => State[v],
+          due: (v) => unix_timestamp_to_ymd(v / 1e3),
           create_at: unix_timestamp_to_ymd,
         },
         topbar: (btn) =>
@@ -464,19 +503,22 @@ const root = div(
   div(
     { class: 'dock bg-neutral font-bold' },
     route_names.map((name) =>
-      button(
-        {
-          class: () => (hash.val === name ? 'dock-active text-primary' : ''),
-          onclick: () => (location.hash = name),
-        },
-        name[0]?.toUpperCase() + name.slice(1),
-      ),
+      name === 'study'
+        ? null
+        : button(
+            {
+              class: () =>
+                hash.val === name ? 'dock-active text-primary' : '',
+              onclick: () => (location.hash = name),
+            },
+            name[0]?.toUpperCase() + name.slice(1),
+          ),
     ),
   ),
 );
 van.derive(() => {
   for (const name of route_names) {
-    const hidden = hash.val !== name;
+    const hidden = !hash.val.startsWith(name);
     let route = routes[name]!;
     if (typeof route === 'function') {
       if (hidden) continue;

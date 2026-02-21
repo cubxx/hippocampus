@@ -30,3 +30,7 @@
     @apply btn-success;
   }
 }
+
+@utility flex-center {
+  @apply flex flex-col items-center-safe justify-center-safe;
+}

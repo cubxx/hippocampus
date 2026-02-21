@@ -5,7 +5,6 @@ import {
   fsrs,
   generatorParameters,
   Grades,
-  Rating,
   type Grade,
 } from 'ts-fsrs';
 import { db } from './db';
@@ -130,12 +129,11 @@ const card = new Elysia({ prefix: '/card' })
       let builder = db
         .selectFrom('card')
         .innerJoin('fsrs', 'card.id', 'fsrs.card_id')
-        .selectAll('card')
+        .selectAll(['card', 'fsrs'])
         .where('deck_id', '=', query.deck_id)
         .limit(query.qs)
         .offset((query.qn - 1) * query.qs);
       if (query.learn != null) {
-        // TODO: filter by fsrs
         builder = builder.where('fsrs.due', '<=', Date.now());
       }
       return builder.execute();
@@ -145,7 +143,7 @@ const card = new Elysia({ prefix: '/card' })
         deck_id: t.Integer(),
         qn: t.Integer({ minimum: 1, default: 1 }),
         qs: t.Integer({ minimum: 1, default: 20 }),
-        learn: t.Optional(t.Literal(true)),
+        learn: t.Optional(t.Literal('')),
       }),
     },
   )
@@ -160,7 +158,7 @@ const card = new Elysia({ prefix: '/card' })
           .values(body)
           .returningAll()
           .executeTakeFirstOrThrow();
-        await trx
+        const fsrs = await trx
           .insertInto('fsrs')
           .values({
             ...card,
@@ -169,9 +167,9 @@ const card = new Elysia({ prefix: '/card' })
             card_id: row.id,
           })
           .returningAll()
-          .execute();
+          .executeTakeFirstOrThrow();
 
-        return row;
+        return { ...row, ...fsrs };
       });
     },
     {
@@ -289,19 +287,11 @@ const media = new Elysia({ prefix: '/media' })
 const app = new Elysia()
   .use(staticPlugin({ assets: 'client/dist', prefix: '/' }))
   .group('/api', (grp) => grp.use(deck).use(template).use(card).use(media))
-  .onRequest(async ({ request: req }) => {
-    await new Promise((r) => setTimeout(r, 1e3));
-    console.log(`${new Date().toISOString()} ${req.method} ${req.url}`);
+  .onRequest(({ request: req, server }) => {
+    console.log(`${req.method} ${req.url.replace(server!.url.href, '/')}`);
   })
-  .listen(
-    {
-      port: process.env.PORT ?? 3000,
-      hostname: '0.0.0.0',
-    },
-    (e) =>
-      console.info(
-        `Listen${e.development ? ' with dev' : ''}: ${e.protocol}://${e.hostname}:${e.port}`,
-      ),
+  .listen({ port: process.env.PORT ?? 3000, hostname: '127.0.0.1' }, (svr) =>
+    console.info(`Listen${svr.development ? ' with dev' : ''}: ${svr.url}`),
   );
 
 export type Api = typeof app;
