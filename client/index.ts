@@ -167,18 +167,31 @@ const Table = <T extends object, K extends (keyof T & string)[]>(props: {
 const Study = (props: {}) => {
   let grade: Grade | null = null;
 
-  const is_back = van.state<0 | 1>(0);
   const deck_id = van.derive(() =>
     hash.val.startsWith('study-') ? +hash.val.slice(6) : NaN,
   );
   const card = van.state<null | (typeof crud.items)[0]>(null);
-  const template = van.derive(
-    () =>
-      card.val &&
-      template_crud.items
-        .find((e) => e.id === card.val!.template_id)
-        ?.content.split('<next>', 2),
-  );
+
+  const parse_template = (
+    tmpl: string,
+    data: Record<'front' | 'back' | `media:${number}`, string>,
+  ) =>
+    (Object.keys(data) as (keyof typeof data)[]).reduce(
+      (acc, k) => acc.replace(`{{${k}}}`, data[k]!),
+      tmpl,
+    );
+  const content_idx = van.state<0 | 1>(0);
+  const content = van.derive(() => {
+    if (card.val == null) return null;
+    const tmpl = template_crud.items.find(
+      (e) => e.id === card.val!.template_id,
+    );
+    if (tmpl == null) return null;
+    return parse_template(tmpl.content, {
+      front: card.val.front,
+      back: card.val.back,
+    }).split('<next>', 2);
+  });
   const crud = useCRUD({
     R: () =>
       api.card
@@ -207,7 +220,6 @@ const Study = (props: {}) => {
     Number.isNaN(deck_id.val) || crud.R.fn();
   });
 
-  const parse_template = (tmpl: string, content: string) => {};
   const grade_level_map = {
     [Rating.Again]: 'error',
     [Rating.Hard]: 'warning',
@@ -220,28 +232,21 @@ const Study = (props: {}) => {
       { hidden: () => !card.val },
       div({ id: 'stat' }),
       div(
-        { id: 'front', hidden: () => is_back.val },
-        div({
-          innerHTML: () =>
-            template.val?.[0]!.replace('{{front}}', card.val?.front ?? '') ??
-            '',
-        }),
+        { id: 'front', hidden: () => content_idx.val },
+        div({ innerHTML: () => content.val?.[content_idx.val] ?? '' }),
         button(
           {
             class: 'btn btn-block',
             onclick() {
-              is_back.val = 1;
+              content_idx.val = 1;
             },
           },
           'OK',
         ),
       ),
       div(
-        { id: 'back', hidden: () => !is_back.val },
-        div({
-          innerHTML: () =>
-            template.val?.[1]!.replace('{{back}}', card.val?.back ?? '') ?? '',
-        }),
+        { id: 'back', hidden: () => !content_idx.val },
+        div({ innerHTML: () => content.val?.[content_idx.val] ?? '' }),
         div(
           { class: 'flex justify-center-safe gap-2' },
           Grades.map((e) =>
