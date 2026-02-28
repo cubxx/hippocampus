@@ -3,9 +3,10 @@
   "type": "module",
   "private": true,
   "scripts": {
-    "dev:client": "vite",
-    "build:client": "vite build",
-    "start:server": "bun run server"
+    "dev:client": "vite client",
+    "build:client": "vite build client",
+    "dev:server": "bun --watch run server",
+    "start:server": "NODE_ENV=production bun run server"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.1.18",

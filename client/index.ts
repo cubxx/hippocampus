@@ -23,7 +23,7 @@ const {
   tr,
   td,
 } = van.tags;
-const { api } = edenTreaty<Api>('/');
+const { api } = edenTreaty<Api>('./');
 const safe = <T>(
   res: { data: T; error: null } | { data: null; error: Error },
 ) => {
