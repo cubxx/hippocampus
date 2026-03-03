@@ -121,17 +121,23 @@ const Table = <T extends object, K extends (keyof T & string)[]>(props: {
   model: ReturnType<typeof useCRUD<T>>;
   keys: K;
   topbar?: (btn: HTMLButtonElement) => HTMLElement;
-  rows: { [P in K[0]]: (value: T[P]) => ValidChildDomValue };
+  headers?: { [P in K[0]]?: (key: P) => ValidChildDomValue };
+  rows: { [P in K[0]]?: (value: T[P]) => ValidChildDomValue };
   onRow?(item: T): void;
 }) => {
   props.topbar ??= (btn) => div({ class: 'm-4 flex' }, btn);
   const tbl = table(
     { class: 'table table-zebra' },
-    thead(tr(props.keys.map((k) => th(k)))),
+    thead(tr(props.keys.map((k) => props.headers?.[k]?.(k) ?? th(k)))),
     list(tbody, props.model.items, (item) =>
       tr(
         { onclick: () => props.onRow?.(item.val) },
-        props.keys.map((k) => td(() => props.rows[k](item.val[k]))),
+        props.keys.map((k) =>
+          td(() => {
+            const v = item.val[k];
+            return props.rows[k]?.(v) ?? '' + v;
+          }),
+        ),
         td(
           { class: 'join' },
           Button({
@@ -153,6 +159,7 @@ const Table = <T extends object, K extends (keyof T & string)[]>(props: {
     ),
   );
   return div(
+    { class: 'flex flex-col' },
     props.topbar(
       Button({
         class: 'btn-primary flex-1',
@@ -166,7 +173,7 @@ const Table = <T extends object, K extends (keyof T & string)[]>(props: {
       const { R } = props.model;
       return R.loading ? 'Loading...' : (R.error ?? '');
     }),
-    div({ class: 'overflow-x-auto' }, tbl),
+    div({ class: 'flex-1 overflow-auto' }, tbl),
   );
 };
 
@@ -305,7 +312,7 @@ const Study = () => {
           class: 'h-full overflow-y-auto flex flex-col',
         },
         div({
-          class: 'flex-1 flex-center',
+          class: 'flex-1 flex-center p-4',
           innerHTML: () => contents.val?.[content_idx.val] ?? 'No content',
         }),
         button(
@@ -325,7 +332,7 @@ const Study = () => {
           class: 'h-full overflow-y-auto flex flex-col',
         },
         div({
-          class: 'flex-1 flex-center',
+          class: 'flex-1 flex-center p-4',
           innerHTML: () => contents.val?.[content_idx.val] ?? 'No content',
         }),
         div(
@@ -336,9 +343,9 @@ const Study = () => {
               text: Rating[e],
               async onClick() {
                 if (card.val == null) return;
-                content_idx.val = 0;
                 grade = e;
                 await crud.U.fn(card.val);
+                content_idx.val = 0;
               },
             }),
           ),
@@ -356,27 +363,9 @@ const routes: Record<string, MaybeGetter<HTMLElement>> = {
     return Table({
       model: deck_crud,
       keys: ['id', 'name', 'create_at'],
-      rows: {
-        id: (v) => v,
-        name: (v) => v,
-        create_at: unix_timestamp_to_ymd,
-      },
+      rows: { create_at: unix_timestamp_to_ymd },
       onRow(item) {
         location.hash = 'study-' + item.id;
-      },
-    });
-  },
-  template() {
-    template_crud.items.length || template_crud.R.fn();
-
-    return Table({
-      model: template_crud,
-      keys: ['id', 'name', 'content', 'create_at'],
-      rows: {
-        id: (v) => v,
-        name: (v) => v,
-        content: (v) => v,
-        create_at: unix_timestamp_to_ymd,
       },
     });
   },
@@ -419,7 +408,7 @@ const routes: Record<string, MaybeGetter<HTMLElement>> = {
     const diag = dialog(
       { class: 'modal' },
       div(
-        { class: 'modal-box flex-center gap-2' },
+        { class: 'modal-box flex-center gap-2 w-fit' },
         list(
           () =>
             select({
@@ -478,7 +467,7 @@ const routes: Record<string, MaybeGetter<HTMLElement>> = {
           placeholder: 'front',
           value: () => editor.data.front,
           onchange(e) {
-            editor.data.front = e.target.value;
+            editor.data.front = e.target.value.trim();
           },
         }),
         textarea({
@@ -486,13 +475,19 @@ const routes: Record<string, MaybeGetter<HTMLElement>> = {
           placeholder: 'back',
           value: () => editor.data.back,
           onchange(e) {
-            editor.data.back = e.target.value;
+            editor.data.back = e.target.value.trim();
           },
         }),
         div(
           { class: 'modal-action' },
-          button({ class: 'btn', onclick: () => editor.cancel() }, 'Cancel'),
-          button({ class: 'btn', onclick: () => editor.ok() }, 'OK'),
+          button(
+            { class: 'btn btn-soft', onclick: () => editor.cancel() },
+            'Cancel',
+          ),
+          button(
+            { class: 'btn btn-primary w-1/2', onclick: () => editor.ok() },
+            'OK',
+          ),
         ),
       ),
     );
@@ -527,42 +522,40 @@ const routes: Record<string, MaybeGetter<HTMLElement>> = {
       deck_id.val != -1 && crud.R.fn();
     });
 
-    return div(
-      Table({
-        model: crud,
-        keys: ['id', 'front', 'back', 'state', 'due', 'create_at'],
-        rows: {
-          id: (v) => v,
-          front: (v) => v,
-          back: (v) => v,
-          state: (v) => State[v],
-          due: (v) => unix_timestamp_to_ymd(v / 1e3),
-          create_at: unix_timestamp_to_ymd,
-        },
-        topbar: (btn) =>
-          div(
-            { class: 'm-4 flex gap-4' },
-            // select deck
-            list(
-              () =>
-                select({
-                  class: 'select w-1/2',
-                  value: () => deck_id.val,
-                  onchange(e) {
-                    deck_id.val = e.target.value;
-                  },
-                }),
-              deck_crud.items,
-              (item) =>
-                option({ value: () => item.val.id }, () => item.val.name),
-            ),
-            // create btn
-            btn,
+    return Table({
+      model: crud,
+      keys: ['id', 'front', 'back', 'state', 'due', 'create_at'],
+      headers: {
+        front: (k) => th({ class: 'min-w-xs' }, k),
+        back: (k) => th({ class: 'min-w-xs' }, k),
+      },
+      rows: {
+        state: (v) => State[v],
+        due: (v) => unix_timestamp_to_ymd(v / 1e3),
+        create_at: unix_timestamp_to_ymd,
+      },
+      topbar: (btn) =>
+        div(
+          { class: 'm-4 flex gap-4' },
+          // select deck
+          list(
+            () =>
+              select({
+                class: 'select w-1/2',
+                value: () => deck_id.val,
+                onchange(e) {
+                  deck_id.val = e.target.value;
+                },
+              }),
+            deck_crud.items,
+            (item) => option({ value: () => item.val.id }, () => item.val.name),
           ),
-      }),
-      // dialog
-      diag,
-    );
+          // create btn
+          btn,
+          // dialog
+          diag,
+        ),
+    });
   },
   media() {
     const media_types: MediaTypes = ['image', 'audio', 'video'];
@@ -645,6 +638,16 @@ const routes: Record<string, MaybeGetter<HTMLElement>> = {
         ),
       ),
     );
+  },
+  template() {
+    template_crud.items.length || template_crud.R.fn();
+
+    return Table({
+      model: template_crud,
+      keys: ['id', 'name', 'content', 'create_at'],
+      headers: { content: (k) => th({ class: 'min-w-xs' }, k) },
+      rows: { create_at: unix_timestamp_to_ymd },
+    });
   },
   study: Study,
 };

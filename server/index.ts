@@ -179,7 +179,8 @@ const card = new Elysia({ prefix: '/card' })
           .map(([_, id]) => id?.length && { card_id: row.id, media_id: +id })
           .filter((e) => !!e)
           .toArray();
-        await trx.insertInto('card_media').values(values).execute();
+        if (values.length)
+          await trx.insertInto('card_media').values(values).execute();
 
         return { ...row, ...fsrs };
       });
