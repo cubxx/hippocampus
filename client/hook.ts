@@ -44,7 +44,7 @@ export const useCRUD = <T extends object>(opts: {
   D: (item: T) => Promise<void>;
 }) => {
   const store = reactive({
-    query: { qs: 20, qn: 1 },
+    query: { qs: 1e2, qn: 1 },
     items: [] as T[],
     C: usePromiseFn(() =>
       opts.C().then((res) => {

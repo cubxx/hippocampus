@@ -1,4 +1,3 @@
-import staticPlugin from '@elysiajs/static';
 import { Elysia, t } from 'elysia';
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs/promises';
@@ -136,6 +135,7 @@ const card = new Elysia({ prefix: '/card' })
         .innerJoin('fsrs', 'card.id', 'fsrs.card_id')
         .selectAll(['card', 'fsrs'])
         .where('deck_id', '=', query.deck_id)
+        .orderBy('id', 'desc') // for review latest
         .limit(query.qs)
         .offset((query.qn - 1) * query.qs);
       if (query.learn != null) {
@@ -329,7 +329,6 @@ const media = new Elysia({ prefix: '/media' })
   );
 
 const app = new Elysia()
-  .use(staticPlugin({ assets: 'client/dist', prefix: '/' }))
   .group('/api', (grp) => grp.use(deck).use(template).use(card).use(media))
   .onRequest(({ request: req, server }) => {
     console.log(`${req.method} ${req.url.replace(server!.url.href, '/')}`);

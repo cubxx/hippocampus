@@ -27,6 +27,8 @@ const {
   audio,
 } = van.tags;
 const { api } = edenTreaty<Api>('./');
+//@ts-ignore
+window['api'] = api;
 const safe = <T>(
   res: { data: T; error: null } | { data: null; error: Error },
 ) => {
@@ -245,10 +247,10 @@ const Study = () => {
     data: Record<'front' | 'back' | `media:${number}`, string>,
   ) =>
     (Object.keys(data) as (keyof typeof data)[]).reduce(
-      (acc, k) => acc.replace(`{{${k}}}`, data[k]!),
+      (acc, k) => acc.replaceAll(`{{${k}}}`, data[k]!),
       tmpl,
     );
-  const content_idx = van.state<0 | 1>(0);
+  const has_fliped = van.state(false);
   const contents = van.state<string[] | null>(null);
   van.derive(async () => {
     if (card.val == null) {
@@ -308,18 +310,18 @@ const Study = () => {
       div(
         {
           id: 'front',
-          hidden: () => content_idx.val,
+          hidden: () => has_fliped.val,
           class: 'h-full overflow-y-auto flex flex-col',
         },
         div({
           class: 'flex-1 flex-center p-4',
-          innerHTML: () => contents.val?.[content_idx.val] ?? 'No content',
+          innerHTML: () => contents.val?.[0] ?? 'No content',
         }),
         button(
           {
             class: 'btn btn-soft btn-primary m-4',
             onclick() {
-              content_idx.val = 1;
+              has_fliped.val = true;
             },
           },
           'Flip',
@@ -328,12 +330,12 @@ const Study = () => {
       div(
         {
           id: 'back',
-          hidden: () => !content_idx.val,
+          hidden: () => !has_fliped.val,
           class: 'h-full overflow-y-auto flex flex-col',
         },
         div({
           class: 'flex-1 flex-center p-4',
-          innerHTML: () => contents.val?.[content_idx.val] ?? 'No content',
+          innerHTML: () => contents.val?.[1] ?? 'No content',
         }),
         div(
           { class: 'm-4 grid grid-cols-4 gap-2' },
@@ -345,7 +347,7 @@ const Study = () => {
                 if (card.val == null) return;
                 grade = e;
                 await crud.U.fn(card.val);
-                content_idx.val = 0;
+                has_fliped.val = false;
               },
             }),
           ),
@@ -524,15 +526,13 @@ const routes: Record<string, MaybeGetter<HTMLElement>> = {
 
     return Table({
       model: crud,
-      keys: ['id', 'front', 'back', 'state', 'due', 'create_at'],
+      keys: ['id', 'front', 'back', 'scheduled_days', 'template_id', 'state'],
       headers: {
         front: (k) => th({ class: 'min-w-xs' }, k),
         back: (k) => th({ class: 'min-w-xs' }, k),
       },
       rows: {
         state: (v) => State[v],
-        due: (v) => unix_timestamp_to_ymd(v / 1e3),
-        create_at: unix_timestamp_to_ymd,
       },
       topbar: (btn) =>
         div(
